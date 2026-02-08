@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Lopez — terminal-based ISO flasher for Linux (dd-powered)"
 license = "MIT"
-repository = ""
+repository = "https://github.com/kaleab49/Lopez"
 
 [dependencies]
 ratatui = "0.29"
