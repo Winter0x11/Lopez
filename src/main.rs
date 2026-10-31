@@ -18,7 +18,11 @@ use std::io;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "lopez", about = "Terminal-based ISO flasher for Linux (dd-powered)")]
+#[command(
+    name = "lopez",
+    version,
+    about = "Terminal-based ISO flasher for Linux (dd-powered)"
+)]
 struct Args {
     /// ISO or IMG file to flash (can also be set in TUI)
     #[arg(short, long)]
@@ -38,16 +42,16 @@ fn main() -> Result<(), AppError> {
 
     let mut stdout = io::stdout();
     crossterm::execute!(stdout, EnterAlternateScreen)?;
-    enable_raw_mode().map_err(|e| AppError::Io(e.into()))?;
+    enable_raw_mode().map_err(AppError::Io)?;
 
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend).map_err(|e| AppError::Io(e.into()))?;
+    let mut terminal = Terminal::new(backend).map_err(AppError::Io)?;
 
     let result = run_event_loop(&mut terminal, &mut state);
 
-    disable_raw_mode().map_err(|e| AppError::Io(e.into()))?;
+    disable_raw_mode().map_err(AppError::Io)?;
     crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor().map_err(|e| AppError::Io(e.into()))?;
+    terminal.show_cursor().map_err(AppError::Io)?;
 
     result
 }

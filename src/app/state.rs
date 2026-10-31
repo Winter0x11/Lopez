@@ -1,7 +1,7 @@
 //! Central app state. Structs for state, enums for screens.
 
 use crate::disk::BlockDevice;
-use crate::flash::FlashMessage;
+use crate::flash::{FlashHandle, FlashMessage};
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
@@ -36,15 +36,25 @@ pub struct AppState {
     pub confirmation_input: String,
     /// Last progress line from dd (stderr).
     pub flash_progress: String,
+    /// Bytes copied so far, parsed from the dd progress line (sticky).
+    pub flash_bytes: Option<u64>,
+    /// Set when the user requested cancellation of the flash.
+    pub flash_cancelled: bool,
+    /// Cancel handle for the running flash job; cleared when done.
+    pub flash_handle: Option<FlashHandle>,
     /// Set when flash thread finishes.
     pub flash_done: Option<Result<(), String>>,
     /// Receiver for flash thread messages; consumed in event loop.
     pub flash_rx: Option<Receiver<FlashMessage>>,
+    /// Inline error shown on the Confirm screen (instead of jumping to Result).
+    pub confirm_error: Option<String>,
+    /// ISO file size in bytes (populated after validation).
+    pub iso_size: Option<u64>,
 }
 
 impl AppState {
     pub fn new(drives: Vec<BlockDevice>) -> Self {
-        let selected_drive_index = if drives.is_empty() { 0 } else { 0 };
+        let selected_drive_index = 0;
         Self {
             screen: Screen::DriveList,
             drives,
@@ -57,8 +67,13 @@ impl AppState {
             iso_error: None,
             confirmation_input: String::new(),
             flash_progress: String::new(),
+            flash_bytes: None,
+            flash_cancelled: false,
+            flash_handle: None,
             flash_done: None,
             flash_rx: None,
+            confirm_error: None,
+            iso_size: None,
         }
     }
 

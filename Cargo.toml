@@ -1,6 +1,6 @@
 [package]
 name = "lopez"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Lopez — terminal-based ISO flasher for Linux (dd-powered)"
 license = "MIT"

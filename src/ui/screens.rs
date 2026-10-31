@@ -1,12 +1,10 @@
 //! Screen rendering. Pure display; state is read-only.
 
 use crate::app::{AppState, Screen};
-use crate::disk::BlockDevice;
+use crate::disk::{format_size, BlockDevice};
 use ratatui::prelude::*;
-use ratatui::text::{Line, Span};
-use ratatui::layout::Alignment;
 use ratatui::widgets::block::BorderType;
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Wrap};
 
 pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
     match state.screen {
@@ -79,7 +77,7 @@ fn render_drive_list(frame: &mut Frame, state: &AppState, area: Rect) {
         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
     );
     let help = Span::styled(
-        " ↑/↓ select • Enter confirm • q quit • Esc back ",
+        " ↑/↓ select • Enter confirm • Esc/q quit ",
         Style::default().fg(Color::DarkGray),
     );
     let block = Block::default()
@@ -115,17 +113,28 @@ fn render_drive_list(frame: &mut Frame, state: &AppState, area: Rect) {
                     },
                 );
                 let size = Span::styled(
-                    format!("  {}  ", d.size),
+                    format!("  {}  ", format_size(d.size_bytes)),
                     Style::default().fg(Color::Green),
                 );
-                let mount = d.mountpoint.as_deref().unwrap_or("—");
-                let mount_style = if mount != "—" {
-                    Style::default().fg(Color::Yellow)
+                let model = match &d.model {
+                    Some(m) => Span::styled(
+                        format!("{}  ", m),
+                        Style::default().fg(Color::Magenta),
+                    ),
+                    None => Span::styled("  ", Style::default()),
+                };
+                let mount = if d.mountpoints.is_empty() {
+                    "not mounted".to_string()
                 } else {
+                    d.mountpoints.join(", ")
+                };
+                let mount_style = if d.mountpoints.is_empty() {
                     Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default().fg(Color::Yellow)
                 };
                 let mount_span = Span::styled(format!("mount: {}", mount), mount_style);
-                ListItem::new(Line::from(vec![prefix, device, size, mount_span]))
+                ListItem::new(Line::from(vec![prefix, device, size, model, mount_span]))
             })
             .collect()
     };
@@ -150,7 +159,7 @@ fn render_iso_select(frame: &mut Frame, state: &AppState, area: Rect) {
         Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
     );
     let help = Span::styled(
-        " ↑/↓ navigate • Tab select • Enter confirm • Esc back • q quit ",
+        " type path • ↑/↓ select • Tab use • Enter confirm • Esc back • Ctrl+Q quit ",
         Style::default().fg(Color::DarkGray),
     );
     let block = Block::default()
@@ -292,16 +301,17 @@ fn render_iso_select(frame: &mut Frame, state: &AppState, area: Rect) {
 }
 
 fn render_confirm(frame: &mut Frame, state: &AppState, area: Rect) {
-    let device_path = state
+    let (device_path, device_size) = state
         .selected_drive()
-        .map(|d: &BlockDevice| d.path())
-        .unwrap_or_else(|| "?".to_string());
+        .map(|d: &BlockDevice| (d.path(), format_size(d.size_bytes)))
+        .unwrap_or_else(|| ("?".to_string(), "—".to_string()));
+    let iso_size = format_size(state.iso_size);
     let title = Span::styled(
         " ⚠️  Confirmation Required ",
         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
     );
     let help = Span::styled(
-        " Type device path to confirm • Esc back • q quit ",
+        " Type device path to confirm • Esc back • Ctrl+Q quit ",
         Style::default().fg(Color::DarkGray),
     );
     let block = Block::default()
@@ -311,7 +321,7 @@ fn render_confirm(frame: &mut Frame, state: &AppState, area: Rect) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::Yellow));
 
-    let warning = vec![
+    let mut warning = vec![
         Line::from(""),
         Line::from(Span::styled(
             "⚠️  WARNING: This will ERASE all data on the selected device!",
@@ -324,11 +334,19 @@ fn render_confirm(frame: &mut Frame, state: &AppState, area: Rect) {
                 device_path,
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             ),
+            Span::styled(
+                format!("  ({})", device_size),
+                Style::default().fg(Color::Green),
+            ),
         ]),
         Line::from(vec![
-            Span::styled("ISO: ", Style::default().fg(Color::White)),
+            Span::styled("ISO:    ", Style::default().fg(Color::White)),
             Span::styled(
                 state.iso_path.display().to_string(),
+                Style::default().fg(Color::Green),
+            ),
+            Span::styled(
+                format!("  ({})", iso_size),
                 Style::default().fg(Color::Green),
             ),
         ]),
@@ -346,6 +364,13 @@ fn render_confirm(frame: &mut Frame, state: &AppState, area: Rect) {
             Span::styled("▌", Style::default().fg(Color::Yellow)),
         ]),
     ];
+    if let Some(ref e) = state.confirm_error {
+        warning.push(Line::from(""));
+        warning.push(Line::from(Span::styled(
+            format!("❌ {}", e),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )));
+    }
     let p = Paragraph::new(warning)
         .block(block)
         .wrap(Wrap { trim: true });
@@ -358,7 +383,7 @@ fn render_flash_progress(frame: &mut Frame, state: &AppState, area: Rect) {
         Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
     );
     let help = Span::styled(
-        " Do not remove device • q quit ",
+        " Do not remove device • Esc cancel flash ",
         Style::default().fg(Color::DarkGray),
     );
     let block = Block::default()
@@ -368,27 +393,77 @@ fn render_flash_progress(frame: &mut Frame, state: &AppState, area: Rect) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::Green));
 
-    let text = if state.flash_progress.is_empty() {
+    let chunks = ratatui::layout::Layout::default()
+        .direction(ratatui::layout::Direction::Vertical)
+        .margin(1)
+        .constraints([
+            ratatui::layout::Constraint::Length(3),
+            ratatui::layout::Constraint::Min(3),
+        ])
+        .split(area);
+    frame.render_widget(block, area);
+
+    let iso_size = state.iso_size.unwrap_or(0);
+    let bytes = state.flash_bytes.unwrap_or(0);
+    let ratio = if iso_size == 0 {
+        None
+    } else {
+        Some((bytes.min(iso_size) as f64 / iso_size as f64).clamp(0.0, 1.0))
+    };
+
+    let inner = if let Some(r) = ratio {
+        vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(
+                    format!(
+                        "  {} / {}  ",
+                        format_size(Some(bytes)),
+                        format_size(Some(iso_size))
+                    ),
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{:.1}%", r * 100.0),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+        ]
+    } else {
         vec![
             Line::from(""),
             Line::from(Span::styled(
                 "Starting dd…",
                 Style::default().fg(Color::Cyan),
             )),
-        ]
-    } else {
-        vec![
             Line::from(""),
-            Line::from(Span::styled(
-                state.flash_progress.as_str(),
-                Style::default().fg(Color::Green),
-            )),
         ]
     };
-    let p = Paragraph::new(text)
-        .block(block)
+    let p = Paragraph::new(inner);
+    frame.render_widget(p, chunks[0]);
+
+    if let Some(r) = ratio {
+        let gauge = Gauge::default()
+            .block(Block::default().borders(Borders::NONE))
+            .gauge_style(Style::default().fg(Color::Green))
+            .ratio(r);
+        frame.render_widget(gauge, chunks[1]);
+    } else if state.flash_cancelled {
+        let msg = Paragraph::new(Line::from(Span::styled(
+            "Cancelling… killing dd.",
+            Style::default().fg(Color::Yellow),
+        )))
+        .alignment(Alignment::Center);
+        frame.render_widget(msg, chunks[1]);
+    } else if !state.flash_progress.is_empty() {
+        let p = Paragraph::new(Line::from(Span::styled(
+            state.flash_progress.as_str(),
+            Style::default().fg(Color::Green),
+        )))
         .wrap(Wrap { trim: true });
-    frame.render_widget(p, area);
+        frame.render_widget(p, chunks[1]);
+    }
 }
 
 fn render_result(frame: &mut Frame, state: &AppState, area: Rect) {

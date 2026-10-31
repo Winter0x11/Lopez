@@ -2,4 +2,4 @@
 
 mod dd_runner;
 
-pub use dd_runner::{run_dd, FlashMessage};
+pub use dd_runner::{parse_progress_bytes, start_flash, FlashHandle, FlashMessage};
